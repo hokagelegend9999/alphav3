@@ -209,6 +209,9 @@ function base_package() {
     print_install "Menginstall Packet Yang Dibutuhkan"
     apt install zip pwgen openssl netcat socat cron bash-completion -y
     apt install figlet -y
+    apt install netcat-openbsd
+    install netcat-traditional
+    apt install libcurl4-openssl-dev
     apt update -y
     apt upgrade -y
     apt dist-upgrade -y
