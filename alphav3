@@ -207,8 +207,9 @@ function base_package() {
     clear
     ########
     print_install "Menginstall Packet Yang Dibutuhkan"
-    apt install zip pwgen openssl netcat socat cron bash-completion -y
+    apt install zip pwgen openssl socat cron bash-completion -y
     apt install figlet -y
+    apt install socat
     apt install netcat-openbsd
     install netcat-traditional
     apt install libcurl4-openssl-dev
