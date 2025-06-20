@@ -51,9 +51,6 @@ mkdir -p /etc/data
 
 # --- Mendapatkan IP Publik Pengguna ---
 user_ip=$(curl -s https://ipinfo.io/ip)
-
-    # Mengambil IP_VPS juga untuk validasi di izin.txt
-    IP_VPS=$(curl -s https://ipinfo.io/ip) # Pastikan ini mengambil IP publik
 echo -e "${GREEN}Sedang Melanjutkan proses...${NC}"
 sleep 2
 
