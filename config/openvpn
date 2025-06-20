@@ -4,27 +4,92 @@ OS=`uname -m`;
 MYIP=$(wget -qO- ipinfo.io/ip);
 domain=$(cat /root/domain)
 MYIP2="s/xxxxxxxxx/$domain/g";
+
+# --- Fungsi untuk Mencetak Pesan ---
+# Fungsi dummy jika tidak ada di script utama Anda (alphav3)
+# Sesuaikan atau hapus jika fungsi ini sudah ada di skrip yang lebih besar
+function print_install() {
+    echo -e "\n\e[1;33m>>>\e[0m \e[1;32m$1\e[0m"
+}
+function print_success() {
+    echo -e "\e[1;32m✓\e[0m \e[1;32m$1 berhasil diproses.\e[0m"
+}
+# --- Akhir Fungsi Dummy ---
+
 function ovpn_install() {
-rm -rf /etc/openvpn
-mkdir -p /etc/openvpn
-wget -O /etc/openvpn/vpn.zip "https://github.com/rasi1982/alpha/raw/refs/heads/main/config/vpn.zip" >/dev/null 2>&1
-unzip -d /etc/openvpn/ /etc/openvpn/vpn.zip
-rm -f /etc/openvpn/vpn.zip
-chown -R root:root /etc/openvpn/server/easy-rsa/
+  clear
+  print_install "Menginstall OpenVPN"
+  rm -rf /etc/openvpn
+  mkdir -p /etc/openvpn
+  # Mengunduh dan mengekstrak konfigurasi OpenVPN
+  wget -O /etc/openvpn/vpn.zip "https://github.com/rasi1982/alpha/raw/refs/heads/main/config/vpn.zip" >/dev/null 2>&1
+  unzip -d /etc/openvpn/ /etc/openvpn/vpn.zip
+  rm -f /etc/openvpn/vpn.zip
+  chown -R root:root /etc/openvpn/server/easy-rsa/
+  print_success "File OpenVPN"
 }
+
 function config_easy() {
-cd
-mkdir -p /usr/lib/openvpn/
-cp /usr/lib/x86_64-linux-gnu/openvpn/plugins/openvpn-plugin-auth-pam.so /usr/lib/openvpn/openvpn-plugin-auth-pam.so
-sed -i 's/#AUTOSTART="all"/AUTOSTART="all"/g' /etc/default/openvpn
-systemctl enable --now openvpn-server@server-tcp
-systemctl enable --now openvpn-server@server-udp
-/etc/init.d/openvpn restart
+  print_install "Mengkonfigurasi OpenVPN"
+  cd
+  mkdir -p /usr/lib/openvpn/
+  # Pastikan plugin ada sebelum menyalinnya
+  if [ -f "/usr/lib/x86_64-linux-gnu/openvpn/plugins/openvpn-plugin-auth-pam.so" ]; then
+    cp /usr/lib/x86_64-linux-gnu/openvpn/plugins/openvpn-plugin-auth-pam.so /usr/lib/openvpn/openvpn-plugin-auth-pam.so
+  else
+    print_install "Peringatan: openvpn-plugin-auth-pam.so tidak ditemukan di lokasi standar. Mungkin perlu diinstal manual."
+  fi
+
+  # Baris ini untuk /etc/default/openvpn tidak lagi relevan untuk systemd, tapi tidak ada salahnya
+  # jika script lain bergantung padanya. Jika Anda hanya butuh systemd, bisa dihapus.
+  sed -i 's/#AUTOSTART="all"/AUTOSTART="all"/g' /etc/default/openvpn 2>/dev/null || true
+
+  # Tentukan nama unit OpenVPN yang benar dari file konfigurasi di /etc/openvpn/
+  # Asumsi ada server.conf atau vpn.conf, jika tidak ada, Anda perlu menyesuaikannya
+  VPN_UNIT_NAME=""
+  if [ -f /etc/openvpn/server.conf ]; then
+      VPN_UNIT_NAME="openvpn@server"
+  elif [ -f /etc/openvpn/vpn.conf ]; then
+      VPN_UNIT_NAME="openvpn@vpn"
+  else
+      # Jika tidak ada file .conf yang sesuai, cek unit systemd yang ada
+      # Ini akan mencoba menemukan unit openvpn@<nama> yang valid
+      UNIT_CHECK=$(systemctl list-units --type=service | grep "openvpn@" | awk '{print $1}' | head -n 1)
+      if [ ! -z "$UNIT_CHECK" ]; then
+          VPN_UNIT_NAME=$(echo "$UNIT_CHECK" | sed 's/\.service$//')
+      else
+          # Jika masih tidak ditemukan, fallback ke unit umum jika ada
+          if systemctl status openvpn.service &>/dev/null; then
+              VPN_UNIT_NAME="openvpn"
+          else
+              print_install "Peringatan: Nama unit OpenVPN tidak dapat ditentukan secara otomatis. Cek manual `/etc/openvpn/`."
+              exit 1 # Keluar karena tidak bisa melanjutkan tanpa nama unit
+          fi
+      fi
+  fi
+
+  # Muat ulang konfigurasi systemd
+  systemctl daemon-reload
+
+  # Aktifkan dan restart layanan OpenVPN menggunakan systemctl
+  print_install "Mengaktifkan dan memulai OpenVPN unit: $VPN_UNIT_NAME"
+  systemctl enable --now "$VPN_UNIT_NAME"
+  systemctl restart "$VPN_UNIT_NAME"
+
+  # Cek status setelah restart
+  systemctl status "$VPN_UNIT_NAME" || print_install "Peringatan: OpenVPN mungkin tidak berhasil memulai. Cek 'systemctl status $VPN_UNIT_NAME' untuk detail."
+
+  print_success "Konfigurasi OpenVPN"
 }
+
 function make_follow() {
-echo 1 > /proc/sys/net/ipv4/ip_forward
-sed -i 's/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/g' /etc/sysctl.conf
-cat > /etc/openvpn/tcp.ovpn <<-END
+  print_install "Mengatur IP Forwarding dan Membuat Konfigurasi Klien"
+  echo 1 > /proc/sys/net/ipv4/ip_forward
+  sed -i 's/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/g' /etc/sysctl.conf
+  sysctl -p # Terapkan perubahan sysctl segera
+
+  # Membuat file konfigurasi klien
+  cat > /etc/openvpn/tcp.ovpn <<-END
 client
 dev tun
 proto tcp
@@ -38,8 +103,9 @@ auth-user-pass
 comp-lzo
 verb 3
 END
-sed -i $MYIP2 /etc/openvpn/tcp.ovpn;
-cat > /etc/openvpn/udp.ovpn <<-END
+  sed -i $MYIP2 /etc/openvpn/tcp.ovpn;
+
+  cat > /etc/openvpn/udp.ovpn <<-END
 client
 dev tun
 proto udp
@@ -53,8 +119,9 @@ auth-user-pass
 comp-lzo
 verb 3
 END
-sed -i $MYIP2 /etc/openvpn/udp.ovpn;
-cat > /etc/openvpn/ws-ssl.ovpn <<-END
+  sed -i $MYIP2 /etc/openvpn/udp.ovpn;
+
+  cat > /etc/openvpn/ws-ssl.ovpn <<-END
 client
 dev tun
 proto tcp
@@ -68,8 +135,9 @@ auth-user-pass
 comp-lzo
 verb 3
 END
-sed -i $MYIP2 /etc/openvpn/ws-ssl.ovpn;
-cat > /etc/openvpn/ssl.ovpn <<-END
+  sed -i $MYIP2 /etc/openvpn/ws-ssl.ovpn;
+
+  cat > /etc/openvpn/ssl.ovpn <<-END
 client
 dev tun
 proto tcp
@@ -83,30 +151,43 @@ auth-user-pass
 comp-lzo
 verb 3
 END
-sed -i $MYIP2 /etc/openvpn/ssl.ovpn;
+  sed -i $MYIP2 /etc/openvpn/ssl.ovpn;
+  print_success "Konfigurasi Klien"
 }
+
 function cert_ovpn() {
-echo '<ca>' >> /etc/openvpn/tcp.ovpn
-cat /etc/openvpn/server/ca.crt >> /etc/openvpn/tcp.ovpn
-echo '</ca>' >> /etc/openvpn/tcp.ovpn
-cp /etc/openvpn/tcp.ovpn /var/www/html/tcp.ovpn
-echo '<ca>' >> /etc/openvpn/udp.ovpn
-cat /etc/openvpn/server/ca.crt >> /etc/openvpn/udp.ovpn
-echo '</ca>' >> /etc/openvpn/udp.ovpn
-cp /etc/openvpn/udp.ovpn /var/www/html/udp.ovpn
-echo '<ca>' >> /etc/openvpn/ws-ssl.ovpn
-cat /etc/openvpn/server/ca.crt >> /etc/openvpn/ws-ssl.ovpn
-echo '</ca>' >> /etc/openvpn/ws-ssl.ovpn
-cp /etc/openvpn/ws-ssl.ovpn /var/www/html/ws-ssl.ovpn
-echo '</ca>' >> /etc/openvpn/ssl.ovpn
-cp /etc/openvpn/ws-ssl.ovpn /var/www/html/ssl.ovpn
-cd /var/www/html/
-zip Kyt-Project.zip tcp.ovpn udp.ovpn ssl.ovpn ws-ssl.ovpn > /dev/null 2>&1
-cd
-cat <<'mySiteOvpn' > /var/www/html/index.html
+  print_install "Menambahkan Sertifikat dan Menyiapkan Halaman Unduhan"
+  # Pastikan direktori web ada
+  mkdir -p /var/www/html/
+
+  echo '<ca>' >> /etc/openvpn/tcp.ovpn
+  cat /etc/openvpn/server/ca.crt >> /etc/openvpn/tcp.ovpn
+  echo '</ca>' >> /etc/openvpn/tcp.ovpn
+  cp /etc/openvpn/tcp.ovpn /var/www/html/tcp.ovpn
+
+  echo '<ca>' >> /etc/openvpn/udp.ovpn
+  cat /etc/openvpn/server/ca.crt >> /etc/openvpn/udp.ovpn
+  echo '</ca>' >> /etc/openvpn/udp.ovpn
+  cp /etc/openvpn/udp.ovpn /var/www/html/udp.ovpn
+
+  echo '<ca>' >> /etc/openvpn/ws-ssl.ovpn
+  cat /etc/openvpn/server/ca.crt >> /etc/openvpn/ws-ssl.ovpn
+  echo '</ca>' >> /etc/openvpn/ws-ssl.ovpn
+  cp /etc/openvpn/ws-ssl.ovpn /var/www/html/ws-ssl.ovpn
+
+  echo '<ca>' >> /etc/openvpn/ssl.ovpn # Baris ini tidak menambahkan ca.crt, mungkin kesalahan di script asli
+  cat /etc/openvpn/server/ca.crt >> /etc/openvpn/ssl.ovpn # Tambahkan ini
+  echo '</ca>' >> /etc/openvpn/ssl.ovpn # Tambahkan ini
+  cp /etc/openvpn/ssl.ovpn /var/www/html/ssl.ovpn # Mengganti ws-ssl.ovpn menjadi ssl.ovpn
+
+  cd /var/www/html/
+  zip Kyt-Project.zip tcp.ovpn udp.ovpn ssl.ovpn ws-ssl.ovpn > /dev/null 2>&1
+  cd
+
+  # Konten HTML tetap sama
+  cat <<'mySiteOvpn' > /var/www/html/index.html
 <!DOCTYPE html>
 <html lang="en">
-<!-- Simple OVPN Download site -->
 <head><meta charset="utf-8" /><title>OVPN Config Download</title><meta name="description" content="Server" /><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport" /><meta name="theme-color" content="#000000" /><link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.8.2/css/all.css"><link href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.3.1/css/bootstrap.min.css" rel="stylesheet"><link href="https://cdnjs.cloudflare.com/ajax/libs/mdbootstrap/4.8.3/css/mdb.min.css" rel="stylesheet"></head><body><div class="container justify-content-center" style="margin-top:9em;margin-bottom:5em;"><div class="col-md"><div class="view"><img src="https://openvpn.net/wp-content/uploads/openvpn.jpg" class="card-img-top"><div class="mask rgba-white-slight"></div></div><div class="card"><div class="card-body"><h5 class="card-title">Config List</h5><br /><ul class="list-group">
 <li class="list-group-item justify-content-between align-items-center" style="margin-bottom:1em;"><p>TCP <span class="badge light-blue darken-4">Android/iOS/PC/Modem</span><br /><small></small></p><a class="btn btn-outline-success waves-effect btn-sm" href="https://IP-ADDRESSS:81/tcp.ovpn" style="float:right;"><i class="fa fa-download"></i> Download</a></li>
 <li class="list-group-item justify-content-between align-items-center" style="margin-bottom:1em;"><p>UDP <span class="badge light-blue darken-4">Android/iOS/PC/Modem</span><br /><small></small></p><a class="btn btn-outline-success waves-effect btn-sm" href="https://IP-ADDRESSS:81/udp.ovpn" style="float:right;"><i class="fa fa-download"></i> Download</a></li>
@@ -115,16 +196,45 @@ cat <<'mySiteOvpn' > /var/www/html/index.html
 <li class="list-group-item justify-content-between align-items-center" style="margin-bottom:1em;"><p> ALL.zip <span class="badge light-blue darken-4">Android/iOS/PC/Modem</span><br /><small></small></p><a class="btn btn-outline-success waves-effect btn-sm" href="https://IP-ADDRESSS:81/Kyt-Project.zip" style="float:right;"><i class="fa fa-download"></i> Download</a></li>
 </ul></div></div></div></div></body></html>
 mySiteOvpn
-sed -i "s|IP-ADDRESSS|$(curl -sS ifconfig.me)|g" /var/www/html/index.html
+  sed -i "s|IP-ADDRESSS|$(curl -sS ifconfig.me)|g" /var/www/html/index.html
+  print_success "Sertifikat dan Halaman Unduhan"
 }
+
 function install_ovpn() {
-ovpn_install
-config_easy
-make_follow
-make_follow
-cert_ovpn
-systemctl enable openvpn
-systemctl start openvpn
-/etc/init.d/openvpn restart
+  ovpn_install
+  config_easy
+  make_follow
+  make_follow # Ini dipanggil dua kali di skrip asli Anda. Saya pertahankan sesuai aslinya.
+  cert_ovpn
+  # systemctl enable openvpn # Baris ini mungkin mengacu pada unit umum openvpn.service
+  # systemctl start openvpn  # Jika unitnya openvpn@nama_config, baris ini tidak digunakan
+  # /etc/init.d/openvpn restart # Ini adalah baris lama yang dihapus
+  
+  # Pastikan OpenVPN diaktifkan dan dimulai dengan nama unit yang benar
+  # Logika penentuan nama unit diulang di sini untuk kejelasan, atau bisa dijadikan global
+  VPN_UNIT_NAME=""
+  if [ -f /etc/openvpn/server.conf ]; then
+      VPN_UNIT_NAME="openvpn@server"
+  elif [ -f /etc/openvpn/vpn.conf ]; then
+      VPN_UNIT_NAME="openvpn@vpn"
+  else
+      UNIT_CHECK=$(systemctl list-units --type=service | grep "openvpn@" | awk '{print $1}' | head -n 1)
+      if [ ! -z "$UNIT_CHECK" ]; then
+          VPN_UNIT_NAME=$(echo "$UNIT_CHECK" | sed 's/\.service$//')
+      else
+          if systemctl status openvpn.service &>/dev/null; then
+              VPN_UNIT_NAME="openvpn"
+          else
+              print_install "Peringatan: Nama unit OpenVPN tidak dapat ditentukan secara otomatis di install_ovpn. Mungkin perlu intervensi manual."
+              exit 1
+          fi
+      fi
+  fi
+
+  print_install "Memastikan OpenVPN diaktifkan saat boot dan dimulai"
+  systemctl enable "$VPN_UNIT_NAME"
+  systemctl start "$VPN_UNIT_NAME"
+  print_success "Instalasi OpenVPN Selesai"
 }
-install_ovpn
+
+install_ovpn # Panggil fungsi utama untuk memulai instalasi
