@@ -571,7 +571,9 @@ print_success "Password SSH"
 function udp_mini(){
 clear
 print_install "Memasang Service Limit IP & Quota"
-wget -q https://raw.githubusercontent.com/hokagelegend9999/alphav3/refs/heads/main/config/fv-tunnel && chmod +x fv-tunnel && ./fv-tunnel
+wget -q https://raw.githubusercontent.com/hokagelegend9999/alphav3/refs/heads/main/config/fv-tunnel
+chmod +x fv-tunnel 
+./fv-tunnel
 
 # // Installing UDP Mini
 mkdir -p /usr/local/kyt/
@@ -619,15 +621,33 @@ print_success "SSHD"
 
 clear
 function ins_dropbear(){
-clear
-print_install "Menginstall Dropbear"
-# // Installing Dropbear
-apt-get install dropbear -y > /dev/null 2>&1
-wget -q -O /etc/default/dropbear https://raw.githubusercontent.com/hokagelegend9999/alphav3/refs/heads/main/config/dropbear.conf
-chmod +x /etc/default/dropbear
-/etc/init.d/dropbear restart
-/etc/init.d/dropbear status
-print_success "Dropbear"
+  clear
+  print_install "Menginstall Dropbear"
+  
+  # // Installing Dropbear
+  # Pastikan paket Dropbear terinstal dari repositori resmi Ubuntu
+  sudo apt update -y # Selalu update daftar paket sebelum instalasi
+  apt-get install dropbear -y > /dev/null 2>&1
+  
+  # Unduh file konfigurasi Dropbear
+  wget -q -O /etc/default/dropbear https://raw.githubusercontent.com/hokagelegend9999/alphav3/refs/heads/main/config/dropbear.conf
+  
+  # TIDAK perlu chmod +x untuk file konfigurasi
+  # chmod +x /etc/default/dropbear 
+  
+  # Muat ulang konfigurasi systemd daemon
+  sudo systemctl daemon-reload
+  
+  # Restart Dropbear menggunakan systemctl (ini adalah cara yang benar di Ubuntu 24.04)
+  sudo systemctl restart dropbear
+  
+  # Cek status Dropbear menggunakan systemctl
+  sudo systemctl status dropbear > /dev/null 2>&1
+  if [ $? -eq 0 ]; then
+      print_success "Dropbear"
+  else
+      print_warning "Dropbear mungkin tidak berhasil memulai. Cek 'sudo systemctl status dropbear' untuk detail."
+  fi
 }
 
 function ins_udpSSH(){
@@ -667,7 +687,9 @@ function ins_openvpn(){
 clear
 print_install "Menginstall OpenVPN"
 #OpenVPN
-wget https://raw.githubusercontent.com/hokagelegend9999/alphav3/refs/heads/main/config/openvpn  chmod +x openvpn && ./openvpn
+wget https://raw.githubusercontent.com/hokagelegend9999/alphav3/refs/heads/main/config/openvpn
+chmod +x openvpn
+./openvpn
 /etc/init.d/openvpn restart
 print_success "OpenVPN"
 }
@@ -737,9 +759,9 @@ print_success "Swap 1 G"
 function ins_Fail2ban(){
 clear
 print_install "Menginstall Fail2ban"
-#apt -y install fail2ban > /dev/null 2>&1
-#sudo systemctl enable --now fail2ban
-#/etc/init.d/fail2ban restart
+apt -y install fail2ban > /dev/null 2>&1
+sudo systemctl enable --now fail2ban
+/etc/init.d/fail2ban restart
 #/etc/init.d/fail2ban status
 
 # Instal DDOS Flate
