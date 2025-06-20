@@ -622,31 +622,74 @@ print_success "SSHD"
 clear
 function ins_dropbear(){
   clear
-  print_install "Menginstall Dropbear"
+  print_install "Menginstal Dropbear"
   
-  # // Installing Dropbear
-  # Pastikan paket Dropbear terinstal dari repositori resmi Ubuntu
-  sudo apt update -y # Selalu update daftar paket sebelum instalasi
-  apt-get install dropbear -y > /dev/null 2>&1
+  # --- Langkah 1: Pastikan paket Dropbear terinstal ---
+  # Selalu update daftar paket sebelum instalasi
+  sudo apt update -y 
+  apt-get install dropbear -y 
+  # Menghapus > /dev/null 2>&1 agar potensi error instalasi terlihat
+  if [ $? -ne 0 ]; then
+      print_error "Gagal menginstal paket Dropbear. Periksa koneksi atau repositori."
+      exit 1
+  fi
+  print_success "Paket Dropbear"
+
+  # --- Langkah 2: Hentikan Dropbear sementara untuk membersihkan kunci lama ---
+  print_install "Menghentikan Dropbear untuk membersihkan kunci host lama..."
+  sudo systemctl stop dropbear > /dev/null 2>&1 # Hentikan layanan, sembunyikan output
   
-  # Unduh file konfigurasi Dropbear
+  # --- Langkah 3: Hapus semua kunci host yang mungkin ada atau rusak ---
+  sudo rm -f /etc/dropbear/dropbear_rsa_host_key
+  sudo rm -f /etc/dropbear/dropbear_dss_host_key
+  sudo rm -f /etc/dropbear/dropbear_ecdsa_host_key
+  print_success "Kunci host Dropbear lama dihapus"
+
+  # --- Langkah 4: Pastikan izin direktori /etc/dropbear/ sudah benar ---
+  sudo chown root:root /etc/dropbear/
+  sudo chmod 755 /etc/dropbear/
+  print_success "Izin direktori /etc/dropbear/"
+
+  # --- Langkah 5: Buat ulang kunci host baru ---
+  print_install "Membuat ulang kunci host Dropbear (RSA, DSS, ECDSA)..."
+  sudo dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key || print_warning "Gagal membuat kunci RSA"
+  sudo dropbearkey -t dss -f /etc/dropbear/dropbear_dss_host_key || print_warning "Gagal membuat kunci DSS"
+  sudo dropbearkey -t ecdsa -f /etc/dropbear/dropbear_ecdsa_host_key || print_warning "Gagal membuat kunci ECDSA"
+  print_success "Kunci host Dropbear baru dibuat"
+
+  # --- Langkah 6: Atur izin yang benar untuk kunci host yang baru dibuat ---
+  sudo chmod 600 /etc/dropbear/dropbear_rsa_host_key
+  sudo chmod 600 /etc/dropbear/dropbear_dss_host_key
+  sudo chmod 600 /etc/dropbear/dropbear_ecdsa_host_key
+  print_success "Izin kunci host Dropbear"
+  
+  # --- Langkah 7: Unduh dan tempatkan file konfigurasi Dropbear ---
+  print_install "Mengunduh konfigurasi Dropbear..."
   wget -q -O /etc/default/dropbear https://raw.githubusercontent.com/hokagelegend9999/alphav3/refs/heads/main/config/dropbear.conf
-  
   # TIDAK perlu chmod +x untuk file konfigurasi
-  # chmod +x /etc/default/dropbear 
+  if [ $? -ne 0 ]; then
+      print_error "Gagal mengunduh file konfigurasi Dropbear."
+      exit 1
+  fi
+  print_success "Konfigurasi Dropbear"
   
-  # Muat ulang konfigurasi systemd daemon
+  # --- Langkah 8: Muat ulang konfigurasi systemd daemon ---
+  print_install "Memuat ulang daemon systemd..."
   sudo systemctl daemon-reload
+  print_success "Daemon systemd"
   
-  # Restart Dropbear menggunakan systemctl (ini adalah cara yang benar di Ubuntu 24.04)
-  sudo systemctl restart dropbear
+  # --- Langkah 9: Aktifkan dan mulai layanan Dropbear menggunakan systemctl ---
+  print_install "Memulai Dropbear..."
+  sudo systemctl enable dropbear # Pastikan aktif saat boot
+  sudo systemctl restart dropbear # Restart untuk menerapkan semua perubahan
   
-  # Cek status Dropbear menggunakan systemctl
+  # --- Langkah 10: Cek status Dropbear ---
   sudo systemctl status dropbear > /dev/null 2>&1
   if [ $? -eq 0 ]; then
-      print_success "Dropbear"
+      print_success "Dropbear berhasil dimulai"
   else
-      print_warning "Dropbear mungkin tidak berhasil memulai. Cek 'sudo systemctl status dropbear' untuk detail."
+      print_error "Dropbear gagal memulai. Periksa log: sudo systemctl status dropbear --no-pager"
+      exit 1 # Keluar jika Dropbear gagal
   fi
 }
 
